@@ -15,11 +15,20 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <dmx.h>
+#include <esp_dmx.h>
 
+/* Normal UART2 default, but in double use with PSRAM
 #define DMX_SERIAL_INPUT_PIN    GPIO_NUM_16 // pin for dmx rx
 #define DMX_SERIAL_OUTPUT_PIN   GPIO_NUM_17 // pin for dmx tx
-#define DMX_SERIAL_IO_PIN       GPIO_NUM_4  // pin for dmx rx/tx change
+*/
+#define DMX_SERIAL_INPUT_PIN    GPIO_NUM_23 // pin for dmx rx
+#define DMX_SERIAL_OUTPUT_PIN   GPIO_NUM_13 // pin for dmx tx
+
+//#define DMX_SERIAL_IO_PIN       GPIO_NUM_4  // pin for dmx rx/tx change
+#define DMX_SERIAL_IO_PIN       GPIO_NUM_19  // pin for dmx rx/tx change, avoid double use
+
+#define DMX_TEN                 GPIO_NUM_19
+#define DMX_REN                 GPIO_NUM_18
 
 #define DMX_UART_NUM            UART_NUM_2  // dmx uart
 
@@ -27,7 +36,7 @@
 
 #define BUF_SIZE                1024        //  buffer size for rx events
 
-#define DMX_CORE                1           // select the core the rx/tx thread should run on
+#define DMX_CORE                0           // select the core the rx/tx thread should run on
 
 #define DMX_IGNORE_THREADSAFETY 0           // set to 1 to disable all threadsafe mechanisms
 
@@ -48,7 +57,7 @@ DMX::DMX()
 
 }
 
-void DMX::Initialize(DMXDirection direction)
+void DMX::Initialize(DMXDirection direction, bool dual_dir)
 {
     // configure UART for DMX
     uart_config_t uart_config =
@@ -60,33 +69,60 @@ void DMX::Initialize(DMXDirection direction)
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE
     };
 
-    uart_param_config(DMX_UART_NUM, &uart_config);
+    ESP_ERROR_CHECK(uart_param_config(DMX_UART_NUM, &uart_config));
 
     // Set pins for UART
-    uart_set_pin(DMX_UART_NUM, DMX_SERIAL_OUTPUT_PIN, DMX_SERIAL_INPUT_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    ESP_ERROR_CHECK(uart_set_pin(DMX_UART_NUM, DMX_SERIAL_OUTPUT_PIN, DMX_SERIAL_INPUT_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
 
     // install queue
-    uart_driver_install(DMX_UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &dmx_rx_queue, 0);
+    ESP_ERROR_CHECK(uart_driver_install(DMX_UART_NUM, BUF_SIZE * 2, BUF_SIZE * 2, 20, &dmx_rx_queue, 0));
 
     // create mutex for syncronisation
     sync_dmx = xSemaphoreCreateMutex();
 
-    // set gpio for direction
-    gpio_pad_select_gpio(DMX_SERIAL_IO_PIN);
-    gpio_set_direction(DMX_SERIAL_IO_PIN, GPIO_MODE_OUTPUT);
+    if(dual_dir)
+    {               // double direction pin
+        gpio_pad_select_gpio(DMX_TEN);
+        gpio_set_direction(DMX_TEN, GPIO_MODE_OUTPUT);
+        gpio_set_pull_mode(DMX_TEN, GPIO_PULLUP_ONLY);
+        gpio_pullup_en(DMX_TEN);
+        gpio_pad_select_gpio(DMX_REN);
+        gpio_set_direction(DMX_REN, GPIO_MODE_OUTPUT);
+        gpio_set_pull_mode(DMX_REN, GPIO_PULLUP_ONLY);
+        gpio_pulldown_en(DMX_REN);
+    }
+    else {          // Single direction pin
+        // set gpio for direction
+        gpio_pad_select_gpio(DMX_SERIAL_IO_PIN);
+        gpio_set_direction(DMX_SERIAL_IO_PIN, GPIO_MODE_OUTPUT);
+    }
 
     // depending on parameter set gpio for direction change and start rx or tx thread
     if(direction == output)
     {
-        gpio_set_level(DMX_SERIAL_IO_PIN, 1);
+        if(dual_dir)
+        {
+            gpio_set_level(DMX_TEN, 1);
+            gpio_set_level(DMX_REN, 1);
+        }
+        else {
+            gpio_set_level(DMX_SERIAL_IO_PIN, 1);
+        }
         dmx_state = DMX_OUTPUT;
         
         // create send task
         xTaskCreatePinnedToCore(DMX::uart_send_task, "uart_send_task", 1024, NULL, 1, NULL, DMX_CORE);
     }
-    else
+    else // Input setup
     {    
-        gpio_set_level(DMX_SERIAL_IO_PIN, 0);
+        if(dual_dir)
+        {
+            gpio_set_level(DMX_TEN, 0);
+            gpio_set_level(DMX_REN, 0);
+        }
+        else {
+            gpio_set_level(DMX_SERIAL_IO_PIN, 0);
+        }
         dmx_state = DMX_IDLE;
 
         // create receive task
