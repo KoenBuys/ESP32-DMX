@@ -23,8 +23,8 @@
 #include "freertos/queue.h"
 #include "driver/uart.h"
 
-#ifndef DMX_h
-#define DMX_h
+#ifndef ESP_DMX_h
+#define ESP_DMX_h
 
 enum DMXDirection { input, output };
 enum DMXState { DMX_IDLE, DMX_BREAK, DMX_DATA, DMX_OUTPUT };
@@ -32,7 +32,7 @@ enum DMXState { DMX_IDLE, DMX_BREAK, DMX_DATA, DMX_OUTPUT };
 class DMX
 {
     public:
-        static void Initialize(DMXDirection direction);     // initialize library
+        static void Initialize(DMXDirection direction, bool dual_dir);     // initialize library
 
         static uint8_t Read(uint16_t channel);              // returns the dmx value for the givven address (values from 1 to 512)
 
