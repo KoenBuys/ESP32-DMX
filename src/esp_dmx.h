@@ -22,6 +22,7 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "driver/uart.h"
+#include "driver/gpio.h"
 
 #ifndef ESP_DMX_h
 #define ESP_DMX_h
